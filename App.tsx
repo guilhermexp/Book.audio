@@ -422,7 +422,7 @@ export default function App() {
   const isBookLoaded = bookPages.length > 0;
 
   return (
-    <div className="bg-[#121212] text-neutral-300 font-serif min-h-screen antialiased relative overflow-hidden select-none">
+    <div className="bg-[#121212] text-neutral-300 font-serif h-screen antialiased relative overflow-hidden select-none flex flex-col">
       <div
         className="absolute inset-0 w-full h-full opacity-[0.02]"
         style={{
@@ -431,7 +431,7 @@ export default function App() {
       ></div>
 
       <div
-        className={`relative z-10 transition-all duration-300 ${isAssistantVisible ? "pr-96" : ""}`}
+        className={`relative z-10 flex-grow flex flex-col transition-all duration-300 ${isAssistantVisible ? "pr-96" : ""}`}
       >
         <TopBar
           bookTitle={bookTitle}
@@ -506,7 +506,7 @@ export default function App() {
         {!isLoading && isBookLoaded && (
           <>
             <main
-              className={`px-16 md:px-20 lg:px-24 pt-24 transition-all duration-300 ${isAudioPlayerVisible ? "pb-72" : "pb-20"}`}
+              className={`flex-grow px-4 md:px-8 lg:px-12 xl:px-16 pt-20 pb-6 transition-all duration-300 ${isAudioPlayerVisible ? "pb-72" : "pb-24"}`}
             >
               <BookView
                 pageText={bookPages[currentPage - 1]}
@@ -518,7 +518,7 @@ export default function App() {
                 isMarkdown={isMarkdownContent}
               />
             </main>
-            <VolumeSlider />
+            {isAudioPlayerVisible && <VolumeSlider />}
             <AudioPlayer isVisible={isAudioPlayerVisible} />
             {!isAudioPlayerVisible && (
               <Footer
