@@ -4,18 +4,27 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --kill-others \"npm run backend\" \"npm run frontend\"",
+    "frontend": "vite",
+    "backend": "python3 backend/start.py",
+    "backend:setup": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",
+    "dev:frontend-only": "vite",
+    "dev:backend-only": "python3 backend/start.py",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.20.0",
+    "axios": "^1.12.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "@google/genai": "^1.20.0"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
