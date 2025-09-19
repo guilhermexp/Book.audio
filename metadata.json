@@ -1,0 +1,5 @@
+{
+  "name": "Ebook Reader UI Clone",
+  "description": "A high-fidelity clone of a modern ebook and audiobook reader interface, built with React and Tailwind CSS. It features a dark mode UI, text and audio controls, and a clean, immersive layout for reading.",
+  "requestFramePermissions": []
+}
