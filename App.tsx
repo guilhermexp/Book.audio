@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { GoogleGenAI, GenerateContentResponse, Type } from "@google/genai";
 import TopBar from "./components/TopBar";
 import BookView from "./components/BookView";
@@ -9,7 +9,12 @@ import UploadIcon from "./components/icons/UploadIcon";
 import AssistantPanel from "./components/AssistantPanel";
 import MindMap from "./components/MindMap";
 import YouTubeInput from "./components/YouTubeInput";
-import { DocumentConverterService } from "./services/documentConverter";
+import {
+  DocumentConverterService,
+  PageContent as ConverterPageContent,
+  PageImage,
+} from "./services/documentConverter";
+import { ttsService } from "./services/ttsService";
 
 // @ts-ignore
 const pdfjsLib = window.pdfjsLib;
@@ -29,9 +34,23 @@ export interface MindMapNodeData {
   children?: MindMapNodeData[];
 }
 
+export interface BookPage {
+  number: number;
+  text: string;
+  displayText: string;
+  images: PageImage[];
+  hasContent: boolean;
+  metadata?: {
+    wordCount?: number;
+    charCount?: number;
+    readingTime?: number;
+  };
+  validationStatus?: 'valid' | 'warning' | 'error';
+}
+
 export default function App() {
   const [bookTitle, setBookTitle] = useState<string>("");
-  const [bookPages, setBookPages] = useState<string[]>([]);
+  const [bookPages, setBookPages] = useState<BookPage[]>([]);
   const [totalPages, setTotalPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -39,8 +58,15 @@ export default function App() {
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isAudioPlayerVisible, setIsAudioPlayerVisible] =
     useState<boolean>(false);
-  const [isMarkdownContent, setIsMarkdownContent] = useState<boolean>(false);
   const [backendHealthy, setBackendHealthy] = useState<boolean>(false);
+  const [pdfDocument, setPdfDocument] = useState<any>(null);
+  const pagePreviewCache = useRef<Map<number, string>>(new Map());
+
+  // TTS State
+  const [isTTSPlaying, setIsTTSPlaying] = useState<boolean>(false);
+  const [ttsVoice, setTTSVoice] = useState<string>("pt-BR-FranciscaNeural");
+  const [ttsSpeed, setTTSSpeed] = useState<number>(1.0);
+  const [ttsBackendHealthy, setTTSBackendHealthy] = useState<boolean>(false);
 
   // AI Assistant State
   const [isAssistantVisible, setIsAssistantVisible] = useState<boolean>(false);
@@ -56,10 +82,12 @@ export default function App() {
 
   useEffect(() => {
     if (pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
     }
     // Check backend health
     documentConverter.checkHealth().then(setBackendHealthy);
+    // Check TTS backend health
+    ttsService.checkHealth().then(setTTSBackendHealthy);
   }, []);
 
   const resetStateForNewBook = () => {
@@ -70,7 +98,17 @@ export default function App() {
     setAssistantInput("");
     setIsMindMapVisible(false);
     setMindMapData(null);
-    setIsMarkdownContent(false);
+    setPdfDocument((prev: any) => {
+      if (prev?.destroy) {
+        try {
+          prev.destroy();
+        } catch (error) {
+          console.warn("Failed to destroy previous PDF document", error);
+        }
+      }
+      return null;
+    });
+    pagePreviewCache.current.clear();
   };
 
   const handleYouTubeURL = async (url: string) => {
@@ -97,20 +135,27 @@ export default function App() {
       const response = await documentConverter.convertYouTube(url);
 
       if (response.success) {
-        // Parse markdown content into pages
-        const pages = documentConverter.parseMarkdownToPages(response.content);
+        const markdownPages = documentConverter.parseMarkdownToPages(
+          response.content,
+        );
+
+        const pages: BookPage[] = markdownPages.map((text, index) => ({
+          number: index + 1,
+          text,
+          displayText: text,
+          images: [],
+          hasContent: text.trim().length > 0,
+        }));
+
         setBookPages(pages);
         setTotalPages(pages.length);
         setCurrentPage(1);
-        setIsMarkdownContent(true);
       } else {
         throw new Error(response.error || "YouTube conversion failed");
       }
     } catch (error) {
-      console.error("Error processing YouTube URL:", error);
-      alert(
-        `Failed to process YouTube video: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      console.error('Failed to process YouTube video:', error);
+      alert(`Failed to process YouTube video: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setBookTitle("");
       setBookPages([]);
       setTotalPages(0);
@@ -131,104 +176,201 @@ export default function App() {
     setIsLoading(true);
     resetStateForNewBook();
 
-    // Extract title from filename
     const fileNameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
     setBookTitle(fileNameWithoutExt);
 
     try {
-      // Check if backend is available
-      if (backendHealthy) {
-        // Use MarkItDown backend for conversion
-        console.log("Converting with MarkItDown backend...");
-        const response = await documentConverter.convertFile(file);
+      const isPdf =
+        file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 
-        if (response.success) {
-          // Parse markdown content into pages
-          const pages = documentConverter.parseMarkdownToPages(
-            response.content,
-          );
-          setBookPages(pages);
-          setTotalPages(pages.length);
-          setCurrentPage(1);
-          setIsMarkdownContent(true);
-        } else {
-          throw new Error(response.error || "Conversion failed");
-        }
-      } else {
-        // Fallback to pdf.js for PDFs only
-        if (file.type !== "application/pdf") {
+      if (!isPdf) {
+        if (!backendHealthy) {
           alert(
-            "Backend service is not available. Please start the backend server to process non-PDF files.",
+            "Backend service is required to process this file format. Please start the backend server.",
           );
           setBookTitle("");
           setIsLoading(false);
           return;
         }
 
-        console.log("Backend not available, falling back to pdf.js...");
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const typedArray = new Uint8Array(e.target?.result as ArrayBuffer);
-            const pdf = await pdfjsLib.getDocument(typedArray).promise;
+        console.log("Converting non-PDF document via backend service...");
+        const response = await documentConverter.convertFile(file);
 
-            setTotalPages(pdf.numPages);
-            const pages: string[] = [];
+        if (!response.success) {
+          throw new Error(response.error || "Conversion failed");
+        }
 
-            for (let i = 1; i <= pdf.numPages; i++) {
-              const page = await pdf.getPage(i);
-              const textContent = await page.getTextContent();
-              const pageText = textContent.items
-                .map((item: any) => item.str)
-                .join(" ");
-              pages.push(pageText);
-            }
+        const parsedPages = documentConverter.parseMarkdownToPages(
+          response.content,
+        );
+        const pages: BookPage[] = parsedPages.map((text, index) => ({
+          number: index + 1,
+          text,
+          displayText: text,
+          images: [],
+          hasContent: text.trim().length > 0,
+        }));
 
-            setBookPages(pages);
-            setCurrentPage(1);
-            setIsMarkdownContent(false);
-          } catch (error) {
-            console.error("Error parsing PDF:", error);
-            alert("Failed to load the PDF file.");
-            setBookTitle("");
-            setBookPages([]);
-            setTotalPages(0);
-            setSummary("");
-          } finally {
-            setIsLoading(false);
-          }
-        };
-        reader.readAsArrayBuffer(file);
+        setBookPages(pages);
+        setTotalPages(pages.length);
+        setCurrentPage(1);
+        return;
       }
+
+      // Process PDF with backend as authority if available
+      const backendPromise = backendHealthy
+        ? documentConverter
+            .convertFile(file)
+            .then((res) => res)
+            .catch((error) => {
+              console.error("Backend conversion failed:", error);
+              return null;
+            })
+        : Promise.resolve(null);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const typedArray = new Uint8Array(arrayBuffer);
+      const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+
+      setPdfDocument(pdf);
+
+      // Wait for backend response to determine authoritative page count
+      const backendResponse = await backendPromise;
+
+      // Use backend page count if available and valid, otherwise fall back to PDF.js
+      let authoritativePageCount = pdf.numPages;
+      let validationIssues: any[] = [];
+
+      if (backendResponse?.success) {
+        if (backendResponse.page_count) {
+          authoritativePageCount = backendResponse.page_count;
+        }
+        if (backendResponse.validation) {
+          validationIssues = backendResponse.validation.issues || [];
+          if (!backendResponse.validation.is_valid) {
+            console.warn("PDF validation failed:", backendResponse.validation);
+          }
+        }
+
+        // Log any validation issues
+        if (validationIssues.length > 0) {
+          console.warn("PDF validation issues:", validationIssues);
+        }
+      }
+
+      setTotalPages(authoritativePageCount);
+
+      // Extract pages from PDF.js first
+      const pdfJsPages: BookPage[] = [];
+      for (let i = 1; i <= Math.min(authoritativePageCount, pdf.numPages); i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(" ");
+        pdfJsPages.push({
+          number: i,
+          text: "",
+          displayText: pageText,
+          images: [],
+          hasContent: pageText.trim().length > 0,
+        });
+      }
+
+      // Add empty pages if backend says there are more pages than PDF.js can see
+      for (let i = pdf.numPages + 1; i <= authoritativePageCount; i++) {
+        pdfJsPages.push({
+          number: i,
+          text: "",
+          displayText: "[Page content unavailable]",
+          images: [],
+          hasContent: false,
+        });
+      }
+
+      // Merge backend data if available
+      if (backendResponse?.success) {
+        if (
+          backendResponse.format === "pdf-pages" &&
+          backendResponse.pages &&
+          backendResponse.pages.length > 0
+        ) {
+          const backendPagesMap = new Map(
+            backendResponse.pages.map((page) => [page.number, page]),
+          );
+
+          const mergedPages: BookPage[] = pdfJsPages.map((page) => {
+            const backendPage = backendPagesMap.get(page.number);
+            return {
+              number: page.number,
+              displayText: page.displayText,
+              text: backendPage?.text || page.displayText,
+              images: backendPage?.images || [],
+              hasContent:
+                backendPage?.has_content ?? page.hasContent,
+            };
+          });
+
+          setBookPages(mergedPages);
+        } else {
+          const parsedPages = documentConverter.parseMarkdownToPages(
+            backendResponse.content,
+          );
+          const pages: BookPage[] = parsedPages.map((text, index) => ({
+            number: index + 1,
+            text,
+            displayText: text,
+            images: [],
+            hasContent: text.trim().length > 0,
+          }));
+          setBookPages(pages);
+          setTotalPages(pages.length);
+        }
+      } else {
+        const fallbackPages = pdfJsPages.map((page) => ({
+          ...page,
+          text: page.displayText,
+        }));
+        setBookPages(fallbackPages);
+      }
+
+      setCurrentPage(1);
     } catch (error) {
-      console.error("Error processing file:", error);
-      alert(
-        `Failed to process file: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      console.error('Failed to process file:', error);
+      alert(`Failed to process file: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setBookTitle("");
       setBookPages([]);
       setTotalPages(0);
       setSummary("");
     } finally {
-      if (backendHealthy) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   };
 
   const summarizeCurrentPage = async () => {
-    if (!bookPages[currentPage - 1]) return;
+    const page = bookPages[currentPage - 1];
+    if (!page) {
+      setSummary("No textual content available for summarization.");
+      return;
+    }
+
+    const textForSummary = page.text.trim() || page.displayText.trim();
+
+    if (!textForSummary) {
+      setSummary("No textual content available for summarization.");
+      return;
+    }
 
     setIsSummarizing(true);
     setSummary("");
     try {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: `Please provide a concise summary of the following text:\n\n---\n\n${bookPages[currentPage - 1]}`,
+        contents: `Please provide a concise summary of the following text:\n\n---\n\n${textForSummary}`,
       });
       setSummary(response.text);
     } catch (error) {
-      console.error("Error summarizing text:", error);
+      console.error('Failed to generate summary:', error);
       setSummary("Sorry, I couldn't generate a summary for this page.");
     } finally {
       setIsSummarizing(false);
@@ -243,7 +385,14 @@ export default function App() {
     const mockPages = Array.from({ length: 15 }, (_, i) => {
       const pageNum = i + 1;
       const chapterNum = Math.ceil(pageNum / 3);
-      return `Chapter ${chapterNum}\n\nPage ${pageNum}\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl.\n\nPhasellus vitae nisl eget nisl aliquam ultricies. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl.\n\nDonec euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Ut in risus volutpat libero pharetra tempor. Cras vestibulum bibendum augue. Praesent egestas leo in pede. Praesent blandit odio eu enim. Pellentesque sed dui ut augue blandit sodales. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Aliquam nibh. Mauris ac mauris sed pede pellentesque fermentum. Maecenas adipiscing ante non diam. Vivamus porttitor turpis ac leo.`;
+      const text = `Chapter ${chapterNum}\n\nPage ${pageNum}\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Nullam euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl.\n\nPhasellus vitae nisl eget nisl aliquam ultricies. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl.\n\nDonec euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Sed euismod, nisl eget aliquam ultricies, nunc nisl aliquet nunc, vitae aliquam nisl nisl vitae nisl. Ut in risus volutpat libero pharetra tempor. Cras vestibulum bibendum augue. Praesent egestas leo in pede. Praesent blandit odio eu enim. Pellentesque sed dui ut augue blandit sodales. Vestibulum ante ipsum primis in faucibus orci luctus et ultrices posuere cubilia Curae; Aliquam nibh. Mauris ac mauris sed pede pellentesque fermentum. Maecenas adipiscing ante non diam. Vivamus porttitor turpis ac leo.`;
+      return {
+        number: pageNum,
+        text,
+        displayText: text,
+        images: [],
+        hasContent: true,
+      } satisfies BookPage;
     });
 
     setTimeout(() => {
@@ -265,7 +414,9 @@ export default function App() {
     setIsAssistantLoading(true);
 
     try {
-      const fullBookText = bookPages.join("\n\n---\n\n");
+      const fullBookText = bookPages
+        .map((page) => page.text || page.displayText)
+        .join("\n\n---\n\n");
       const response: GenerateContentResponse = await ai.models.generateContent(
         {
           model: "gemini-2.5-flash",
@@ -293,7 +444,7 @@ export default function App() {
       };
       setChatHistory((prev) => [...prev, modelResponse]);
     } catch (error) {
-      console.error("Error with assistant:", error);
+      console.error('Assistant error:', error);
       const errorResponse: ChatMessage = {
         role: "model",
         text: "Sorry, I encountered an error. Please try again.",
@@ -309,7 +460,9 @@ export default function App() {
 
     setIsGeneratingMindMap(true);
     try {
-      const fullBookText = bookPages.join("\n\n---\n\n");
+      const fullBookText = bookPages
+        .map((page) => page.text || page.displayText)
+        .join("\n\n---\n\n");
 
       const nodeSchema = {
         type: Type.OBJECT,
@@ -372,7 +525,7 @@ export default function App() {
       const mindMapJson = JSON.parse(response.text);
       setMindMapData(mindMapJson);
     } catch (error) {
-      console.error("Error generating mind map:", error);
+      console.error('Failed to generate mind map:', error);
       alert("Sorry, I couldn't generate a mind map for this book.");
       // Close the mind map view on error
       setIsMindMapVisible(false);
@@ -419,6 +572,62 @@ export default function App() {
     });
   };
 
+  // TTS Functions
+  const handleTTSPlay = async () => {
+    const page = bookPages[currentPage - 1];
+    if (!page) return;
+    const speechSource = page.text.trim() || page.displayText.trim();
+    if (!speechSource) {
+      console.warn("Skipping TTS: page without textual content", page.number);
+      return;
+    }
+
+    try {
+      // Calculate rate: 0.5x = -50%, 1.0x = +0%, 1.5x = +50%, 2.0x = +100%
+      const ratePercent = Math.round((ttsSpeed - 1) * 100);
+      const rateString = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
+
+      const audio = await ttsService.generateAudio(speechSource, {
+        voice: ttsVoice,
+        rate: rateString,
+      });
+
+      setIsTTSPlaying(true);
+      await ttsService.playAudio(audio);
+
+      // Auto-advance to next page when audio ends
+      if (currentPage < totalPages) {
+        goToNextPage();
+        // Continue playing next page
+        handleTTSPlay();
+      } else {
+        setIsTTSPlaying(false);
+      }
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+      setIsTTSPlaying(false);
+    }
+  };
+
+  const handleTTSPause = () => {
+    ttsService.pauseAudio();
+    setIsTTSPlaying(false);
+  };
+
+  const handleTTSStop = () => {
+    ttsService.stopAudio();
+    setIsTTSPlaying(false);
+  };
+
+  const handleTTSVoiceChange = (voice: string) => {
+    setTTSVoice(voice);
+  };
+
+  const handleTTSSpeedChange = (speed: number) => {
+    setTTSSpeed(speed);
+    ttsService.setPlaybackRate(speed);
+  };
+
   const isBookLoaded = bookPages.length > 0;
 
   return (
@@ -429,6 +638,8 @@ export default function App() {
           backgroundImage: `url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1IiBoZWlnaHQ9IjUiPgo8cmVjdCB3aWR0aD0iNSIgaGVpZ2h0PSI1IiBmaWxsPSIjZmZmIj48L3JlY3Q+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNjY2MiPjwvcmVjdD4KPC9zdmc+')`,
         }}
       ></div>
+
+      {/* Error Notification - temporarily disabled for now */}
 
       <div
         className={`relative z-10 flex-grow flex flex-col transition-all duration-300 ${isAssistantVisible ? "pr-96" : ""}`}
@@ -509,17 +720,32 @@ export default function App() {
               className={`flex-grow px-4 md:px-8 lg:px-12 xl:px-16 pt-20 pb-6 transition-all duration-300 ${isAudioPlayerVisible ? "pb-72" : "pb-24"}`}
             >
               <BookView
-                pageText={bookPages[currentPage - 1]}
+                page={bookPages[currentPage - 1] ?? null}
                 currentPage={currentPage}
                 title={bookTitle}
                 onSummarize={summarizeCurrentPage}
                 summary={summary}
                 isSummarizing={isSummarizing}
-                isMarkdown={isMarkdownContent}
+                pdfDocument={pdfDocument}
+                previewCache={pagePreviewCache}
               />
             </main>
             {isAudioPlayerVisible && <VolumeSlider />}
-            <AudioPlayer isVisible={isAudioPlayerVisible} />
+            <AudioPlayer
+              isVisible={isAudioPlayerVisible}
+              isBookLoaded={isBookLoaded}
+              isTTSPlaying={isTTSPlaying}
+              ttsVoice={ttsVoice}
+              ttsSpeed={ttsSpeed}
+              ttsBackendHealthy={ttsBackendHealthy}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onTTSPlay={handleTTSPlay}
+              onTTSPause={handleTTSPause}
+              onTTSStop={handleTTSStop}
+              onTTSVoiceChange={handleTTSVoiceChange}
+              onTTSSpeedChange={handleTTSSpeedChange}
+            />
             {!isAudioPlayerVisible && (
               <Footer
                 currentPage={currentPage}

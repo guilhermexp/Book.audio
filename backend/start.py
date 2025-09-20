@@ -24,8 +24,13 @@ def main():
     # Run the main.py with the virtual environment Python
     python_path = venv_path / "bin" / "python" if os.name != "nt" else venv_path / "Scripts" / "python.exe"
     print("🚀 Starting Book.audio Backend Server...")
-    print("📚 API Documentation: http://localhost:8000/docs")
-    subprocess.run([str(python_path), "main.py"], cwd=backend_dir)
+    print("📚 API Documentation: http://localhost:8010/docs")
+
+    # Set environment variable for port
+    env = os.environ.copy()
+    env['PORT'] = '8010'
+
+    subprocess.run([str(python_path), "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8010"], cwd=backend_dir, env=env)
 
 if __name__ == "__main__":
     main()

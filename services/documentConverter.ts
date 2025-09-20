@@ -1,6 +1,21 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8010';
+
+export interface PageImage {
+  id: string;
+  url: string;
+  width?: number;
+  height?: number;
+  content_type: string;
+}
+
+export interface PageContent {
+  number: number;
+  text: string;
+  images: PageImage[];
+  has_content: boolean;
+}
 
 export interface ConversionResponse {
   content: string;
@@ -10,10 +25,12 @@ export interface ConversionResponse {
     size?: number;
     content_type?: string;
     format: string;
+    page_count?: number;
   };
   format: string;
   success: boolean;
   error?: string;
+  pages?: PageContent[];
 }
 
 export class DocumentConverterService {

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste TTS Book.audio</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .test-section {
+            background: #2a2a2a;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        button {
+            background: #5a5aff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #4a4aef;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #2a4a2a;
+            color: #4f4;
+        }
+        .error {
+            background: #4a2a2a;
+            color: #f44;
+        }
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+        select {
+            padding: 5px;
+            margin: 5px;
+            background: #3a3a3a;
+            color: white;
+            border: 1px solid #5a5a5a;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎤 Teste do Sistema TTS - Book.audio</h1>
+
+    <div class="test-section">
+        <h2>1. Teste de Conexão</h2>
+        <button onclick="testConnection()">Testar Backend</button>
+        <div id="connection-status"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Listar Vozes Disponíveis</h2>
+        <button onclick="listVoices()">Carregar Vozes</button>
+        <div id="voices-status"></div>
+        <select id="voice-select" style="display: none;">
+            <option value="">Selecione uma voz...</option>
+        </select>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Gerar Áudio de Teste</h2>
+        <textarea id="test-text" style="width: 100%; height: 100px; background: #3a3a3a; color: white; border: 1px solid #5a5a5a; border-radius: 4px; padding: 10px;">
+Esta é uma demonstração do sistema de síntese de voz integrado ao Book.audio.
+O sistema pode ler qualquer texto com vozes naturais de alta qualidade.
+Você pode escolher diferentes vozes e ajustar a velocidade de leitura.
+        </textarea>
+        <br>
+        <button onclick="generateAudio()">🎵 Gerar Áudio</button>
+        <div id="audio-status"></div>
+        <audio id="audio-player" controls style="display: none;"></audio>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Simular Leitura de Página</h2>
+        <button onclick="simulatePageReading()">📖 Simular Leitura de Livro</button>
+        <div id="page-status"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+
+        async function testConnection() {
+            const statusDiv = document.getElementById('connection-status');
+            try {
+                const response = await fetch(`${API_BASE}/api/health`);
+                const data = await response.json();
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = `✅ Backend conectado: ${data.status} - ${data.service}`;
+
+                // Test TTS health
+                const ttsResponse = await fetch(`${API_BASE}/api/tts/voices?locale=pt-BR`);
+                if (ttsResponse.ok) {
+                    statusDiv.innerHTML += '<br>✅ TTS Service: Online';
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Erro de conexão: ${error.message}`;
+            }
+        }
+
+        async function listVoices() {
+            const statusDiv = document.getElementById('voices-status');
+            const select = document.getElementById('voice-select');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/tts/voices?locale=pt-BR`);
+                const data = await response.json();
+
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = `✅ ${data.total} vozes PT-BR disponíveis`;
+
+                select.innerHTML = '<option value="">Selecione uma voz...</option>';
+                data.voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.id;
+                    option.textContent = `${voice.name} (${voice.gender})`;
+                    select.appendChild(option);
+                });
+
+                select.style.display = 'block';
+                select.value = 'pt-BR-FranciscaNeural'; // Default
+
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Erro ao carregar vozes: ${error.message}`;
+            }
+        }
+
+        async function generateAudio() {
+            const statusDiv = document.getElementById('audio-status');
+            const audioPlayer = document.getElementById('audio-player');
+            const text = document.getElementById('test-text').value;
+            const voice = document.getElementById('voice-select').value || 'pt-BR-FranciscaNeural';
+
+            statusDiv.className = 'status';
+            statusDiv.innerHTML = '⏳ Gerando áudio...';
+
+            try {
+                const response = await fetch(`${API_BASE}/api/tts/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: voice,
+                        rate: '+0%',
+                        pitch: '+0Hz'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const blob = await response.blob();
+                const audioUrl = URL.createObjectURL(blob);
+
+                audioPlayer.src = audioUrl;
+                audioPlayer.style.display = 'block';
+                audioPlayer.play();
+
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = `✅ Áudio gerado com sucesso! Tamanho: ${(blob.size / 1024).toFixed(2)} KB`;
+
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Erro ao gerar áudio: ${error.message}`;
+            }
+        }
+
+        async function simulatePageReading() {
+            const statusDiv = document.getElementById('page-status');
+            const audioPlayer = document.getElementById('audio-player');
+
+            const bookPages = [
+                "Página 1: Era uma vez, em um reino distante, onde a tecnologia e a magia coexistiam em harmonia. Este é o início de nossa jornada.",
+                "Página 2: Os habitantes deste reino descobriram uma forma de dar vida às palavras através da síntese de voz neural.",
+                "Página 3: E assim, todos os livros ganharam voz, e o conhecimento se espalhou por toda a terra. Fim."
+            ];
+
+            statusDiv.className = 'status';
+            statusDiv.innerHTML = '📖 Iniciando leitura do livro...';
+
+            for (let i = 0; i < bookPages.length; i++) {
+                statusDiv.innerHTML = `📖 Lendo página ${i + 1} de ${bookPages.length}...`;
+
+                try {
+                    const response = await fetch(`${API_BASE}/api/tts/generate-page`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            page_content: bookPages[i],
+                            page_number: i + 1,
+                            voice: 'pt-BR-FranciscaNeural'
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    // Fetch and play the audio
+                    const audioResponse = await fetch(`${API_BASE}${data.audioUrl}`);
+                    const blob = await audioResponse.blob();
+                    const audioUrl = URL.createObjectURL(blob);
+
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.style.display = 'block';
+
+                    // Play and wait for it to end
+                    await new Promise((resolve) => {
+                        audioPlayer.onended = resolve;
+                        audioPlayer.play();
+                    });
+
+                    statusDiv.innerHTML = `✅ Página ${i + 1} concluída. Duração estimada: ${data.duration.toFixed(1)}s`;
+
+                    // Small pause between pages
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                } catch (error) {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = `❌ Erro na página ${i + 1}: ${error.message}`;
+                    break;
+                }
+            }
+
+            if (statusDiv.className !== 'status error') {
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = '✅ Leitura do livro concluída!';
+            }
+        }
+
+        // Auto-test on load
+        window.onload = () => {
+            testConnection();
+            setTimeout(() => listVoices(), 1000);
+        };
+    </script>
+</body>
+</html>

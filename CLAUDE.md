@@ -4,16 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an ebook reader web application built with React, TypeScript, and Vite. The app allows users to upload and read PDF files, get AI-powered summaries, interact with an AI assistant about the book content, and generate mind maps of book concepts.
+This is a full-stack ebook reader application with AI-powered features. The frontend is built with React and TypeScript, while the backend provides document conversion and text-to-speech services. The app supports PDF, ePub, Word, PowerPoint files, and YouTube videos, with features like AI summaries, assistants, mind maps, and audio narration.
 
 ## Development Commands
 
 ```bash
-# Install dependencies
+# Install frontend dependencies
 npm install
 
-# Run development server
+# Setup backend (creates venv and installs requirements)
+npm run backend:setup
+
+# Run full-stack development (frontend + backend)
 npm run dev
+
+# Run frontend only
+npm run dev:frontend-only
+
+# Run backend only
+npm run dev:backend-only
 
 # Build for production
 npm run build
@@ -31,41 +40,70 @@ GEMINI_API_KEY=your_api_key_here
 
 ## Architecture Overview
 
-### Core Technologies
-- **Frontend Framework**: React 19 with TypeScript
-- **Build Tool**: Vite
-- **AI Integration**: Google Gemini AI (`@google/genai`)
-- **PDF Processing**: PDF.js (loaded via CDN)
+### Full-Stack Architecture
+- **Frontend**: React 19 + TypeScript + Vite (port 5173)
+- **Backend**: FastAPI + Python (port 8000)
+- **AI Integration**: Google Gemini AI with web search capabilities
+- **Document Processing**: MarkItDown for various formats, PyMuPDF for advanced PDF processing
+- **Text-to-Speech**: Edge-TTS for audio generation
 
-### Application Structure
+### Frontend Architecture (`App.tsx`)
 
-The app follows a component-based architecture:
+The main App component manages all global state using React hooks:
 
-- **App.tsx**: Main application component managing global state including:
-  - Book content (pages, current page, navigation)
-  - AI features (summaries, assistant chat, mind map generation)
-  - UI state (panel visibility, loading states)
+**State Categories:**
+- **Book State**: `bookPages`, `currentPage`, `totalPages`, `bookTitle`
+- **AI State**: `summary`, `chatHistory`, `mindMapData`
+- **TTS State**: `isTTSPlaying`, `ttsVoice`, `ttsSpeed`
+- **UI State**: `isAssistantVisible`, `isMindMapVisible`, `isAudioPlayerVisible`
+- **Backend Health**: `backendHealthy`, `ttsBackendHealthy`
 
-- **Component Organization**:
-  - `components/` - All React components
-    - `icons/` - SVG icon components
-    - Main UI components (TopBar, BookView, AudioPlayer, Footer, etc.)
-    - AI-powered components (AssistantPanel, MindMap)
+**Key Patterns:**
+- Singleton services for document conversion and TTS (`DocumentConverterService`, `TTSService`)
+- Dual PDF processing: client-side PDF.js + backend PyMuPDF extraction with image support
+- Backend fallback system: client-only PDF support when backend unavailable
+- Audio caching and management in TTS service
 
-### Key Architectural Patterns
+### Backend Architecture (`backend/main.py`)
 
-1. **State Management**: Uses React hooks (useState) for local state management in App.tsx
-2. **AI Integration**: Direct API calls to Gemini AI for summaries, chat, and structured JSON generation
-3. **PDF Processing**: Client-side PDF parsing using pdf.js library
-4. **Styling**: Inline Tailwind CSS classes for styling
+FastAPI application with modular services:
 
-### AI Features Implementation
+**Core Endpoints:**
+- `/api/convert/file` - Multi-format document conversion via MarkItDown
+- `/api/convert/youtube` - YouTube transcript extraction
+- `/api/tts/generate` - Text-to-speech audio generation
+- `/api/health` - Service health check
 
-- **Page Summaries**: Sends current page text to Gemini for summarization
-- **AI Assistant**: Maintains chat history and sends full book context with each query, supports web search with citations
-- **Mind Map Generation**: Uses structured JSON schema with Gemini to generate hierarchical book concept maps
+**Services:**
+- `pdf_extractor.py` - Advanced PDF processing with image extraction using PyMuPDF
+- `tts_service.py` - Edge-TTS wrapper with caching and voice management
+- `main.py` - FastAPI routes and request/response models
 
-### Build Configuration
+### Service Communication
 
-- **Vite Config**: Custom environment variable injection for API keys
-- **TypeScript Config**: ES2022 target with React JSX, path aliases configured
+**Frontend ↔ Backend:**
+- HTTP API calls via axios with CORS support
+- Health checks on startup to determine feature availability
+- Graceful degradation when backend unavailable (PDF-only mode)
+
+**AI Integration:**
+- Direct Gemini AI API calls from frontend for summaries and chat
+- Structured JSON generation for mind maps using response schemas
+- Web search integration with citation support
+
+### Development Patterns
+
+**File Structure:**
+- `services/` - Frontend service classes (DocumentConverter, TTS)
+- `components/` - React components with icon submodule
+- `backend/` - Python FastAPI backend with modular services
+
+**State Management:**
+- Single source of truth in App.tsx
+- Service classes handle business logic and caching
+- Backend health checks determine available features
+
+**Error Handling:**
+- Graceful fallbacks for missing backend services
+- User-friendly error messages for conversion failures
+- Automatic retry mechanisms in TTS service

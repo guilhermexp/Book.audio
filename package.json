@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others \"npm run backend\" \"npm run frontend\"",
+    "start": "node start-app.js",
     "frontend": "vite",
     "backend": "python3 backend/start.py",
     "backend:setup": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt",

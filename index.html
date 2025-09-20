@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js" integrity="sha512-B2022QpLQ3m2c219a1y8pL4+vBqOFJstEVbFfec7D5L3Rj3c0xYFlI92mJDi3U23yP/vD4/vMPG5i5iNppA6g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -21,6 +21,49 @@
         },
       }
     </script>
+    <style>
+      /* Custom scrollbar styles */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+      }
+
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+
+      /* Reading experience enhancements */
+      .prose p:first-of-type:first-letter {
+        font-size: 4rem;
+        line-height: 1;
+        font-weight: 700;
+        float: left;
+        margin: 0 0.5rem 0 0;
+        color: #e5e5e5;
+      }
+
+      .reading-content {
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Improved typography */
+      .book-text {
+        hyphens: auto;
+        word-break: break-word;
+        text-align: justify;
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
