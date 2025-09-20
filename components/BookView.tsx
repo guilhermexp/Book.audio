@@ -99,6 +99,7 @@ const BookView: React.FC<BookViewProps> = ({
   const hasContent = page?.hasContent ?? richText.trim().length > 0;
   const [pageImageUrl, setPageImageUrl] = useState<string | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!pdfDocument || !page) {
@@ -146,18 +147,72 @@ const BookView: React.FC<BookViewProps> = ({
   }, [pdfDocument, page?.number, previewCache]);
 
   return (
-    <div className="w-full h-full grid grid-cols-1 lg:grid-cols-[300px_1fr] xl:grid-cols-[350px_1fr] gap-4 lg:gap-6">
-      {/* Left Column: Page Number and Chapter Title */}
+    <div className="w-full h-full grid grid-cols-1 lg:grid-cols-[320px_1fr] xl:grid-cols-[400px_1fr] gap-4 lg:gap-8">
+      {/* Left Column: Page Number, Chapter Title and Images */}
       <div className="col-span-1 flex flex-col">
         <p className="text-7xl lg:text-8xl xl:text-9xl font-serif text-neutral-600 mb-4 select-none font-light">
           {currentPage}
         </p>
-        <h1 className="text-3xl lg:text-4xl xl:text-5xl font-serif text-neutral-100 break-words leading-tight">
-          {extractChapterTitle(richText) || title}
-        </h1>
-        <div className="mt-6 text-sm text-neutral-500 italic font-serif">
-          {extractQuote(richText)}
-        </div>
+
+        {/* Show images if available, otherwise show title */}
+        {images.length > 0 ? (
+          <div className="space-y-4">
+            {/* Still show title but smaller if there are images */}
+            <h2 className="text-xl lg:text-2xl font-serif text-neutral-100 break-words leading-tight mb-4">
+              {extractChapterTitle(richText) || title}
+            </h2>
+
+            {/* Display images */}
+            <div className="space-y-3">
+              {images.map((image, index) => (
+                <div key={image.id} className="relative group">
+                  <img
+                    src={`http://localhost:8010${image.url}`}
+                    alt={`Image ${index + 1} from page ${currentPage}`}
+                    className="w-full rounded-lg book-image"
+                    style={{ display: loadedImages.has(image.id) ? 'block' : 'none' }}
+                    onLoad={() => {
+                      setLoadedImages(prev => new Set(prev).add(image.id));
+                    }}
+                    onError={(e) => {
+                      console.error(`Failed to load image: ${image.url}`);
+                      // Try without base URL if it fails
+                      const target = e.target as HTMLImageElement;
+                      if (target.src.includes('localhost')) {
+                        target.src = image.url;
+                      }
+                    }}
+                  />
+                  {!loadedImages.has(image.id) && (
+                    <div className="w-full aspect-[4/3] bg-neutral-800 rounded-lg image-loading" />
+                  )}
+                  <p className="text-xs text-neutral-500 mt-2 text-center">
+                    Imagem {index + 1} da página {currentPage}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* Quote if available */}
+            {extractQuote(richText) && (
+              <div className="mt-4 pt-4 border-t border-neutral-800">
+                <div className="text-sm text-neutral-500 italic font-serif">
+                  {extractQuote(richText)}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Original layout when no images */
+          <>
+            <h1 className="text-3xl lg:text-4xl xl:text-5xl font-serif text-neutral-100 break-words leading-tight">
+              {extractChapterTitle(richText) || title}
+            </h1>
+            <div className="mt-6 text-sm text-neutral-500 italic font-serif">
+              {extractQuote(richText)}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right Column: Page Content and Summary */}
@@ -180,9 +235,19 @@ const BookView: React.FC<BookViewProps> = ({
           {hasContent ? (
             <div className="prose prose-lg prose-invert max-w-none">
               <div
-                className="font-serif text-lg lg:text-xl leading-relaxed text-neutral-200 whitespace-pre-wrap"
+                className="font-serif text-lg lg:text-xl leading-relaxed text-neutral-200 reading-content book-text"
                 dangerouslySetInnerHTML={{ __html: formatTextContent(richText) }}
               />
+            </div>
+          ) : images.length > 0 ? (
+            /* If no text but has images, show a message */
+            <div className="flex flex-col items-center justify-center py-10 text-neutral-400">
+              <p className="text-sm">
+                Esta página contém apenas elementos visuais.
+              </p>
+              <p className="text-xs text-neutral-500 mt-2">
+                Veja as imagens no painel lateral.
+              </p>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-neutral-500">
@@ -192,19 +257,7 @@ const BookView: React.FC<BookViewProps> = ({
             </div>
           )}
 
-          {images.length > 0 && (
-            <div className="space-y-4 pt-6">
-              {images.map((image, index) => (
-                <figure key={image.id} className="flex flex-col gap-2">
-                  <img
-                    src={image.url}
-                    alt={`Imagem ${index + 1} da página ${page?.number ?? currentPage}`}
-                    className="w-full max-h-[70vh] object-contain rounded-lg border border-neutral-800"
-                  />
-                </figure>
-              ))}
-            </div>
-          )}
+          {/* Images are now shown in the left column, so we don't duplicate them here */}
 
           {/* Toggle for PDF Preview */}
           {pdfDocument && pageImageUrl && (

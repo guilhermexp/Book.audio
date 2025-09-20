@@ -22,11 +22,34 @@ export interface TTSPageResponse {
   cached: boolean;
 }
 
+export interface TTSStatus {
+  edge_tts: boolean;
+  chatterbox: boolean;
+  advanced_tts: boolean;
+  contextual_analysis: boolean;
+  pre_generation: boolean;
+  emotion_control: boolean;
+  voice_cloning: boolean;
+  recommended_engine: string;
+}
+
+export interface TTSContextualOptions {
+  voice?: string;
+  language?: string;  // Added language option for Chatterbox
+  emotion_exaggeration?: number;
+  cfg_scale?: number;
+  auto_emotion?: boolean;
+  pre_analyze?: boolean;
+  page_id?: string;
+}
+
 class TTSService {
   private static instance: TTSService;
   private audioCache: Map<string, string> = new Map();
   private currentAudio: HTMLAudioElement | null = null;
   private isPlaying: boolean = false;
+  private ttsStatus: TTSStatus | null = null;
+  private preGeneratedPages: Set<string> = new Set();
 
   private constructor() {}
 
@@ -38,7 +61,124 @@ class TTSService {
   }
 
   /**
-   * Generate audio for text
+   * Check TTS engine status
+   */
+  async checkTTSStatus(): Promise<TTSStatus> {
+    try {
+      const response = await axios.get<TTSStatus>(`${API_BASE_URL}/api/tts/status`);
+      this.ttsStatus = response.data;
+      return response.data;
+    } catch (error) {
+      console.warn('Failed to check TTS status, using defaults');
+      return {
+        edge_tts: true,
+        chatterbox: false,
+        advanced_tts: false,
+        contextual_analysis: false,
+        pre_generation: false,
+        emotion_control: false,
+        voice_cloning: false,
+        recommended_engine: 'edge_tts'
+      };
+    }
+  }
+
+  /**
+   * Generate audio with contextual analysis (new method)
+   */
+  async generateContextualAudio(
+    text: string,
+    options: TTSContextualOptions = {}
+  ): Promise<Blob> {
+    const {
+      voice = 'pt-BR-FranciscaNeural',
+      language = 'pt',  // Default to Portuguese for Chatterbox
+      emotion_exaggeration = 0.5,
+      cfg_scale = 0.5,
+      auto_emotion = true,
+      pre_analyze = true,
+      page_id
+    } = options;
+
+    // Check cache first if page_id provided
+    if (page_id && this.audioCache.has(page_id)) {
+      console.log(`Using cached audio for page ${page_id}`);
+      const cachedUrl = this.audioCache.get(page_id);
+      if (cachedUrl) {
+        const response = await fetch(cachedUrl);
+        return await response.blob();
+      }
+    }
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/tts/generate-contextual`,
+        {
+          text,
+          language,  // Send language instead of voice for Chatterbox
+          emotion_exaggeration,
+          cfg_scale,
+          auto_emotion,
+          pre_analyze,
+          page_id
+        },
+        { responseType: 'blob' }
+      );
+
+      // Cache the blob URL
+      if (page_id) {
+        const blobUrl = URL.createObjectURL(response.data);
+        this.audioCache.set(page_id, blobUrl);
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Error generating contextual TTS audio:', error);
+      // Fallback to regular TTS
+      return this.generateAudio(text, { voice });
+    }
+  }
+
+  /**
+   * Pre-generate audio for multiple pages (using cache)
+   */
+  async preGeneratePages(
+    pages: Array<{ id?: string; number?: number; text: string }>,
+    voice: string = 'pt'
+  ): Promise<void> {
+    // Filter out already cached pages
+    const pagesToGenerate = pages.filter(p => {
+      const pageId = p.id || String(p.number || 0);
+      return !this.audioCache.has(pageId) && !this.preGeneratedPages.has(pageId);
+    });
+
+    if (pagesToGenerate.length === 0) return;
+
+    // Generate audio for each page individually and cache
+    for (const page of pagesToGenerate) {
+      const pageId = page.id || String(page.number || 0);
+      try {
+        await this.generateContextualAudio(page.text, {
+          voice,
+          emotion_exaggeration: 0.6,
+          cfg_scale: 0.4,
+          auto_emotion: true,
+          pre_analyze: true,
+          page_id: pageId
+        });
+
+        this.preGeneratedPages.add(pageId);
+        console.log(`Generated audio for page ${pageId}`);
+      } catch (error) {
+        console.warn(`Failed to generate audio for page ${pageId}:`, error);
+      }
+    }
+
+    console.log(`Generated ${pagesToGenerate.length} pages`);
+  }
+
+  /**
+   * Generate audio for text (original method, now uses contextual if available)
    */
   async generateAudio(text: string, options: TTSOptions = {}): Promise<Blob> {
     const {

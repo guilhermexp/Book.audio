@@ -8,3 +8,14 @@ cors==1.0.1
 edge-tts==7.2.3
 pymupdf==1.24.10
 pillow==11.1.0
+
+# Advanced TTS and NLP
+torch>=2.0.0
+torchaudio>=2.0.0
+transformers>=4.30.0
+accelerate>=0.20.0
+spacy>=3.5.0
+nltk>=3.8.0
+
+# Optional: For Chatterbox when available
+# resemble-enhance

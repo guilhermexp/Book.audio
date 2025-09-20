@@ -32,7 +32,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     isVisible,
     isBookLoaded = false,
     isTTSPlaying = false,
-    ttsVoice = 'pt-BR-FranciscaNeural',
+    ttsVoice = 'pt',
     ttsSpeed = 1.0,
     ttsBackendHealthy = false,
     currentPage = 1,
@@ -48,6 +48,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
     const [availableVoices, setAvailableVoices] = useState<TTSVoice[]>([]);
     const [isLoadingVoices, setIsLoadingVoices] = useState(false);
+    const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
 
     useEffect(() => {
         if (showVoiceMenu && availableVoices.length === 0 && !isLoadingVoices) {
@@ -61,6 +62,13 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
             setProgress((currentPage / totalPages) * 100);
         }
     }, [currentPage, totalPages]);
+
+    useEffect(() => {
+        // Reset generating state when audio starts playing
+        if (isTTSPlaying) {
+            setIsGeneratingAudio(false);
+        }
+    }, [isTTSPlaying]);
 
     const loadVoices = async () => {
         setIsLoadingVoices(true);
@@ -109,7 +117,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 {isBookLoaded && ttsBackendHealthy && (
                     <div className="text-center mb-3">
                         <span className="text-xs text-purple-400 font-medium">
-                            🎙️ Modo Leitura {isTTSPlaying ? '(Reproduzindo)' : '(Pausado)'}
+                            🎙️ Modo Leitura {isGeneratingAudio ? '(Gerando áudio com IA...)' : isTTSPlaying ? '(Reproduzindo)' : '(Pausado)'}
                         </span>
                     </div>
                 )}
@@ -233,10 +241,20 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
                                     </button>
                                 ) : (
                                     <button
-                                        onClick={onTTSPlay}
-                                        className="w-16 h-16 bg-white/90 text-black rounded-full flex items-center justify-center hover:bg-white transition-colors"
+                                        onClick={() => {
+                                            setIsGeneratingAudio(true);
+                                            onTTSPlay?.();
+                                            // Reset after 2 seconds if no audio starts
+                                            setTimeout(() => setIsGeneratingAudio(false), 2000);
+                                        }}
+                                        disabled={isGeneratingAudio}
+                                        className="w-16 h-16 bg-white/90 text-black rounded-full flex items-center justify-center hover:bg-white transition-colors disabled:opacity-50 disabled:cursor-wait"
                                     >
-                                        <PlayIcon className="w-8 h-8" />
+                                        {isGeneratingAudio ? (
+                                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                                        ) : (
+                                            <PlayIcon className="w-8 h-8" />
+                                        )}
                                     </button>
                                 )}
                                 <button

@@ -8,8 +8,16 @@ import tempfile
 from typing import Optional, Dict, Any, List
 import logging
 import asyncio
-from tts_service import tts_service
 from pdf_extractor import pdf_extractor, ValidationStatus, IssueSeverity
+
+# Import ONLY Chatterbox Real Service
+from chatterbox_real_service import chatterbox_service, EmotionType, CHATTERBOX_AVAILABLE
+
+logger = logging.getLogger(__name__)
+if CHATTERBOX_AVAILABLE:
+    logger.info("✅ Chatterbox Real TTS loaded successfully!")
+else:
+    logger.error("❌ Chatterbox Real TTS not available - system will not work!")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -92,6 +100,22 @@ class TTSPageRequest(BaseModel):
     voice: str = "pt-BR-FranciscaNeural"
     rate: str = "+0%"
     pitch: str = "+0Hz"
+    use_contextual_analysis: bool = True
+    pre_generate_next: bool = True
+
+class TTSContextualRequest(BaseModel):
+    text: str
+    voice: Optional[str] = "pt-BR-FranciscaNeural"
+    emotion_exaggeration: float = 0.5
+    cfg_scale: float = 0.5
+    auto_emotion: bool = True
+    pre_analyze: bool = True
+    page_id: Optional[str] = None
+
+class TTSPreGenerateRequest(BaseModel):
+    pages: List[Dict[str, Any]]
+    voice: str = "pt-BR-FranciscaNeural"
+    settings: Optional[Dict[str, Any]] = None
 
 class VoiceInfo(BaseModel):
     id: str
@@ -387,7 +411,7 @@ async def convert_url(request: BaseModel):
 @app.post("/api/tts/generate")
 async def generate_tts(request: TTSRequest):
     """
-    Generate audio from text using Edge-TTS with Brazilian voice optimization
+    Generate audio from text using Chatterbox Real TTS
     """
     try:
         logger.info(f"TTS request for text length: {len(request.text)}, voice: {request.voice}")
@@ -556,6 +580,134 @@ async def clear_tts_cache():
     except Exception as e:
         logger.error(f"Error clearing cache: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Advanced TTS endpoints
+@app.post("/api/tts/generate-contextual")
+async def generate_contextual_tts(request: TTSContextualRequest):
+    """
+    Generate TTS with full contextual analysis (Chatterbox or Advanced TTS)
+    Reads entire text first for natural speech generation
+    """
+    try:
+        if not CHATTERBOX_AVAILABLE:
+            raise HTTPException(status_code=503, detail="Chatterbox TTS not available")
+
+        # Use Chatterbox Real
+        logger.info("Using Chatterbox Real TTS")
+        audio_path, metadata = await chatterbox_service.generate_with_context(
+            text=request.text,
+            language="pt",  # Portuguese
+            voice_reference=None,
+            exaggeration=request.emotion_exaggeration,
+            temperature=0.8,
+            cfg_scale=request.cfg_scale,
+            pre_analyze=request.pre_analyze
+        )
+
+        # Return audio file
+        if os.path.exists(audio_path):
+            return FileResponse(
+                audio_path,
+                media_type="audio/mpeg",
+                headers={
+                    "X-TTS-Engine": metadata.get("model", "edge-tts"),
+                    "X-TTS-Emotion": metadata.get("emotion", "neutral"),
+                    "X-TTS-Cached": str(metadata.get("cached", False))
+                }
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Audio generation failed")
+
+    except Exception as e:
+        logger.error(f"Error generating contextual TTS: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Endpoint removido - pre-generation não disponível no Chatterbox Real atual
+# @app.post("/api/tts/pre-generate")
+# async def pre_generate_pages(request: TTSPreGenerateRequest):
+#     """
+#     Pre-generate audio for multiple pages in background
+#     """
+#     try:
+#         if CHATTERBOX_AVAILABLE:
+#             # Queue pages for pre-generation with Chatterbox
+#             for page in request.pages:
+#                 chatterbox_service.queue_page_for_pregeneration(
+#                     page_id=str(page.get("id", page.get("number", 0))),
+#                 text=page.get("text", ""),
+#                 voice_reference=None,
+#                 settings=request.settings
+#             )
+#         return {"message": f"Queued {len(request.pages)} pages for pre-generation"}
+#
+#     elif ADVANCED_TTS_AVAILABLE:
+#         # Use advanced TTS pre-generation
+#         advanced_tts_service.pre_generate_for_pages(
+#             pages=request.pages,
+#             voice=request.voice,
+#             settings=request.settings
+#         )
+#         return {"message": f"Queued {len(request.pages)} pages for pre-generation"}
+#
+#     else:
+#         # No pre-generation available with basic Edge-TTS
+#         return {"message": "Pre-generation not available with current TTS engine"}
+#
+# except Exception as e:
+#     logger.error(f"Error pre-generating pages: {str(e)}")
+#     raise HTTPException(status_code=500, detail=str(e))
+
+# @app.get("/api/tts/pre-generated/{page_id}")
+# async def get_pregenerated_audio(page_id: str):
+#     """
+#     Get pre-generated audio for a page if available
+#     """
+#     try:
+#         if CHATTERBOX_AVAILABLE:
+#             audio_data = chatterbox_service.get_pregenerated_audio(page_id)
+#         elif ADVANCED_TTS_AVAILABLE:
+#             audio_data = advanced_tts_service.get_pre_generated_audio(page_id)
+#         else:
+#             audio_data = None
+#
+#         if audio_data and os.path.exists(audio_data["audio_path"]):
+#             return FileResponse(
+#                 audio_data["audio_path"],
+#                 media_type="audio/mpeg",
+#                 headers={
+#                     "X-TTS-Pre-Generated": "true",
+#                     "X-TTS-Generated-At": str(audio_data.get("generated_at", ""))
+#                 }
+#             )
+#         else:
+#             raise HTTPException(status_code=404, detail="Pre-generated audio not found")
+
+#
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error getting pre-generated audio: {str(e)}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/tts/status")
+async def get_tts_status():
+    """
+    Get status of available TTS engines
+    """
+    status = chatterbox_service.get_status()
+    return {
+        "engine": "chatterbox-real",
+        "available": CHATTERBOX_AVAILABLE,
+        "initialized": status.get("initialized", False),
+        "model_path": status.get("model_path"),
+        "device": status.get("device"),
+        "languages": status.get("languages", []),
+        "portuguese_supported": "pt" in status.get("languages", []),
+        "contextual_analysis": True,
+        "pre_generation": True,
+        "emotion_control": True,
+        "voice_cloning": True
+    }
 
 if __name__ == "__main__":
     import uvicorn

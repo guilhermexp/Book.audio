@@ -64,7 +64,7 @@ export default function App() {
 
   // TTS State
   const [isTTSPlaying, setIsTTSPlaying] = useState<boolean>(false);
-  const [ttsVoice, setTTSVoice] = useState<string>("pt-BR-FranciscaNeural");
+  const [ttsVoice, setTTSVoice] = useState<string>("pt");
   const [ttsSpeed, setTTSSpeed] = useState<number>(1.0);
   const [ttsBackendHealthy, setTTSBackendHealthy] = useState<boolean>(false);
 
@@ -86,9 +86,32 @@ export default function App() {
     }
     // Check backend health
     documentConverter.checkHealth().then(setBackendHealthy);
-    // Check TTS backend health
+    // Check TTS backend health and capabilities
     ttsService.checkHealth().then(setTTSBackendHealthy);
+
+    // Check advanced TTS capabilities
+    ttsService.checkTTSStatus().then(status => {
+      console.log('TTS Capabilities:', status);
+      if (status.contextual_analysis) {
+        console.log('Advanced TTS with contextual analysis available!');
+      }
+    });
   }, []);
+
+  // Pre-generate audio when pages are loaded
+  useEffect(() => {
+    if (bookPages.length > 0 && ttsBackendHealthy) {
+      // Pre-generate first 3 pages
+      const pagesToPreGenerate = bookPages.slice(0, 3).map(p => ({
+        id: String(p.number),
+        number: p.number,
+        text: p.text || p.displayText || ''
+      }));
+
+      ttsService.preGeneratePages(pagesToPreGenerate, ttsVoice)
+        .catch(err => console.warn('Pre-generation failed:', err));
+    }
+  }, [bookPages, ttsVoice, ttsBackendHealthy]);
 
   const resetStateForNewBook = () => {
     setSummary("");
@@ -539,6 +562,17 @@ export default function App() {
       const nextPage = Math.min(prev + 1, totalPages);
       if (nextPage !== prev) {
         setSummary(""); // Clear summary when page changes
+
+        // Pre-generate audio for upcoming pages
+        if (bookPages.length > nextPage && ttsBackendHealthy) {
+          const upcomingPages = bookPages.slice(nextPage, nextPage + 3).map(p => ({
+            id: String(p.number),
+            number: p.number,
+            text: p.text || p.displayText || ''
+          }));
+          ttsService.preGeneratePages(upcomingPages, ttsVoice)
+            .catch(err => console.warn('Pre-generation failed:', err));
+        }
       }
       return nextPage;
     });
@@ -587,9 +621,14 @@ export default function App() {
       const ratePercent = Math.round((ttsSpeed - 1) * 100);
       const rateString = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
 
-      const audio = await ttsService.generateAudio(speechSource, {
-        voice: ttsVoice,
-        rate: rateString,
+      // Use contextual TTS if available, otherwise fallback to regular
+      const audio = await ttsService.generateContextualAudio(speechSource, {
+        language: ttsVoice,  // ttsVoice now holds the language code ("pt")
+        emotion_exaggeration: 0.6,  // Natural emotion level for books
+        cfg_scale: 0.4,  // More expressive reading
+        auto_emotion: true,  // Auto-detect emotions from text
+        pre_analyze: true,  // Analyze full context before speaking
+        page_id: String(page.number)
       });
 
       setIsTTSPlaying(true);
