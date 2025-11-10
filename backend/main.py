@@ -1,17 +1,16 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from markitdown import MarkItDown
 import os
 import tempfile
 from typing import Optional, Dict, Any, List
 import logging
-import asyncio
-from pdf_extractor import pdf_extractor, ValidationStatus, IssueSeverity
+from pdf_extractor import pdf_extractor
 
 # Import ONLY Chatterbox Real Service
-from chatterbox_real_service import chatterbox_service, EmotionType, CHATTERBOX_AVAILABLE
+from chatterbox_real_service import chatterbox_service, CHATTERBOX_AVAILABLE
 
 logger = logging.getLogger(__name__)
 if CHATTERBOX_AVAILABLE:

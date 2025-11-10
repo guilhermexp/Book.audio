@@ -11,13 +11,10 @@ import tempfile
 import hashlib
 import re
 import logging
-import asyncio
 from typing import Optional, Dict, Any, List, Tuple
 from collections import OrderedDict
-from dataclasses import dataclass
 from enum import Enum
 import soundfile as sf
-from pathlib import Path
 
 # Add the Chatterbox project path to Python path
 CHATTERBOX_PATH = "/Users/guilhermevarela/Documents/Projetos/Chatterbox-Multilingual-TTS"

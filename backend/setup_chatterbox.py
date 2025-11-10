@@ -84,7 +84,6 @@ def test_transformers():
     """Test transformers installation"""
     print("\nTesting transformers installation...")
     try:
-        from transformers import AutoModel, AutoTokenizer
         print("✓ Transformers imported successfully")
         return True
     except Exception as e:
